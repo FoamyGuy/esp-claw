@@ -206,6 +206,13 @@ menu "Default IM Settings"
         help
             Default Telegram bot token used by the IM cap.
 
+    config BASIC_DEMO_TG_ALLOWED_CHAT_ID
+        string "Default Telegram allowed chat ID"
+        default ""
+        help
+            If set, only messages from this Telegram chat ID are processed.
+            Leave empty to allow all chats (no restriction).
+
     config BASIC_DEMO_WECHAT_TOKEN
         string "Default WeChat token"
         default ""

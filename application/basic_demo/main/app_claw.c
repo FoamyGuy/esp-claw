@@ -242,6 +242,7 @@ static esp_err_t init_capabilities(const basic_demo_settings_t *settings, const 
 
     if (settings->tg_bot_token[0]) {
         ESP_RETURN_ON_ERROR(cap_im_tg_set_token(settings->tg_bot_token), TAG, "Failed to set Telegram bot token");
+        ESP_RETURN_ON_ERROR(cap_im_tg_set_allowed_chat_id(settings->tg_allowed_chat_id), TAG, "Failed to set Telegram allowed chat ID");
     }
 
     if (settings->wechat_token[0] && settings->wechat_base_url[0]) {

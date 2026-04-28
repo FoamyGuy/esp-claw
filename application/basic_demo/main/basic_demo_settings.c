@@ -49,6 +49,7 @@ static void settings_load_defaults(basic_demo_settings_t *settings)
     settings_safe_copy(settings->feishu_app_id, sizeof(settings->feishu_app_id), BASIC_DEMO_FEISHU_APP_ID);
     settings_safe_copy(settings->feishu_app_secret, sizeof(settings->feishu_app_secret), BASIC_DEMO_FEISHU_APP_SECRET);
     settings_safe_copy(settings->tg_bot_token, sizeof(settings->tg_bot_token), BASIC_DEMO_TG_BOT_TOKEN);
+    settings_safe_copy(settings->tg_allowed_chat_id, sizeof(settings->tg_allowed_chat_id), BASIC_DEMO_TG_ALLOWED_CHAT_ID);
     settings_safe_copy(settings->wechat_token, sizeof(settings->wechat_token), BASIC_DEMO_WECHAT_TOKEN);
     settings_safe_copy(settings->wechat_base_url, sizeof(settings->wechat_base_url), BASIC_DEMO_WECHAT_BASE_URL);
     settings_safe_copy(settings->wechat_cdn_base_url, sizeof(settings->wechat_cdn_base_url), BASIC_DEMO_WECHAT_CDN_BASE_URL);
@@ -117,6 +118,7 @@ esp_err_t basic_demo_settings_load(basic_demo_settings_t *settings)
         { "feishu_app_id", settings->feishu_app_id, settings->feishu_app_id, sizeof(settings->feishu_app_id) },
         { "feishu_secret", settings->feishu_app_secret, settings->feishu_app_secret, sizeof(settings->feishu_app_secret) },
         { "tg_bot_token", settings->tg_bot_token, settings->tg_bot_token, sizeof(settings->tg_bot_token) },
+        { "tg_allow_chat", settings->tg_allowed_chat_id, settings->tg_allowed_chat_id, sizeof(settings->tg_allowed_chat_id) },
         { "wechat_token", settings->wechat_token, settings->wechat_token, sizeof(settings->wechat_token) },
         { "wechat_base_url", settings->wechat_base_url, settings->wechat_base_url, sizeof(settings->wechat_base_url) },
         { "wechat_cdn_url", settings->wechat_cdn_base_url, settings->wechat_cdn_base_url, sizeof(settings->wechat_cdn_base_url) },
@@ -181,6 +183,7 @@ esp_err_t basic_demo_settings_save(const basic_demo_settings_t *settings)
         { "feishu_app_id", NULL, (char *)settings->feishu_app_id, sizeof(settings->feishu_app_id) },
         { "feishu_secret", NULL, (char *)settings->feishu_app_secret, sizeof(settings->feishu_app_secret) },
         { "tg_bot_token", NULL, (char *)settings->tg_bot_token, sizeof(settings->tg_bot_token) },
+        { "tg_allow_chat", NULL, (char *)settings->tg_allowed_chat_id, sizeof(settings->tg_allowed_chat_id) },
         { "wechat_token", NULL, (char *)settings->wechat_token, sizeof(settings->wechat_token) },
         { "wechat_base_url", NULL, (char *)settings->wechat_base_url, sizeof(settings->wechat_base_url) },
         { "wechat_cdn_url", NULL, (char *)settings->wechat_cdn_base_url, sizeof(settings->wechat_cdn_base_url) },

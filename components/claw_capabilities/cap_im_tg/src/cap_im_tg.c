@@ -72,6 +72,7 @@ typedef struct {
 
 typedef struct {
     char bot_token[192];
+    char allowed_chat_id[32];
     char attachment_root_dir[128];
     size_t max_inbound_file_bytes;
     bool enable_inbound_attachments;
@@ -640,6 +641,12 @@ static void cap_im_tg_handle_update(cJSON *update_json)
     }
 
     snprintf(chat_id, sizeof(chat_id), "%" PRId64, (int64_t)chat_id_json->valuedouble);
+
+    if (s_tg.allowed_chat_id[0] && strcmp(s_tg.allowed_chat_id, chat_id) != 0) {
+        ESP_LOGW(TAG, "Telegram message from unauthorized chat_id=%s, dropping", chat_id);
+        return;
+    }
+
     if (cJSON_IsNumber(from_id_json)) {
         snprintf(sender_id, sizeof(sender_id), "%" PRId64, (int64_t)from_id_json->valuedouble);
     } else {
@@ -1418,6 +1425,12 @@ esp_err_t cap_im_tg_set_token(const char *bot_token)
     s_tg.next_update_id = 0;
     memset(s_tg.seen_update_keys, 0, sizeof(s_tg.seen_update_keys));
     s_tg.seen_update_idx = 0;
+    return ESP_OK;
+}
+
+esp_err_t cap_im_tg_set_allowed_chat_id(const char *chat_id)
+{
+    strlcpy(s_tg.allowed_chat_id, chat_id ? chat_id : "", sizeof(s_tg.allowed_chat_id));
     return ESP_OK;
 }
 
