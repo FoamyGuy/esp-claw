@@ -1,0 +1,72 @@
+version: 1.0.0
+# Devices Configuration
+
+devices:
+
+  # PCA9554A I/O expander — must initialize before display_lcd
+  # 7-bit I2C address 0x3F (PCA9554A range 0x38-0x3F); YAML stores 8-bit form: 0x7E
+  # Register-compatible with TCA9554A, so we use the espressif tca9554 driver.
+  # Bit assignments: bit0=CLK, bit1=CS, bit2=RESET, bit3=MOSI, bits4-6=backlight/buttons
+  - name: gpio_expander
+    chip: tca9554
+    type: gpio_expander
+    version: default
+    dependencies:
+      espressif/esp_io_expander_tca9554: "^2"
+    config:
+      max_pins: 8
+      # Pins 0,1,2,7 are outputs (CLK, CS, RESET, backlight)
+      output_io_mask: [0, 1, 2, 7]
+      output_io_level_mask: [1, 1, 1, 1]   # idle high; flip backlight bit if needed
+      input_io_mask: NULL
+    peripherals:
+      - name: i2c_master
+        i2c_addr: [0x7E]                   # 8-bit form of 7-bit 0x3F
+
+  # RGB dot-clock display — TL040HDS20, 4" 720x720 square, RGB-565 (16 data lines)
+  # No SPI init sequence required for this panel
+  # type:custom required — no display_lcd:rgb sub_type in esp_board_manager v0.5.3
+  # Returns dev_display_lcd_handles_t* for display_hal.c compatibility
+  - name: display_lcd
+    chip: tl040hds20
+    type: custom
+    version: default
+    config:
+      pclk_hz: 16000000          # pixel clock Hz
+      h_res: 720
+      v_res: 720
+      hsync_pulse_width: 2
+      hsync_front_porch: 46
+      hsync_back_porch: 44
+      vsync_pulse_width: 2
+      vsync_front_porch: 16
+      vsync_back_porch: 18
+      hsync_idle_low: false
+      vsync_idle_low: false
+      de_idle_high: false
+      pclk_active_neg: true      # pclk_active_high=False in CircuitPython terms
+      pclk_idle_high: false
+      # RGB data lines — R[0-4], G[0-5], B[0-4], 16 pins total
+      data_gpio_r0: 1
+      data_gpio_r1: 2
+      data_gpio_r2: 42
+      data_gpio_r3: 41
+      data_gpio_r4: 40
+      data_gpio_g0: 21
+      data_gpio_g1: 47
+      data_gpio_g2: 48
+      data_gpio_g3: 45
+      data_gpio_g4: 38
+      data_gpio_g5: 39
+      data_gpio_b0: 10
+      data_gpio_b1: 11
+      data_gpio_b2: 12
+      data_gpio_b3: 13
+      data_gpio_b4: 14
+      de_gpio_num: 17
+      vsync_gpio_num: 3
+      hsync_gpio_num: 46
+      pclk_gpio_num: 9
+      bits_per_pixel: 16         # RGB-565; board wires 5-6-5 despite "RGB-666" name
+    peripherals:
+      - name: i2c_master

@@ -1,0 +1,5 @@
+board: qualia_esp32s3_rgb666
+chip: esp32s3
+version: 1.0.0
+description: "Adafruit Qualia ESP32-S3 for TTL RGB-666 Displays (16MB flash / 8MB OPI PSRAM)"
+manufacturer: "Adafruit"

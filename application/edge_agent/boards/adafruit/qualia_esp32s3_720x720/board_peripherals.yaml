@@ -1,0 +1,14 @@
+version: 1.0.0
+# Peripherals Configuration
+
+peripherals:
+
+  # I2C master — SDA=GPIO8, SCL=GPIO18
+  # Shared by PCA9554A expander, touch controller, and STEMMA QT connector
+  - name: i2c_master
+    type: i2c
+    role: master
+    config:
+      port: 0
+      sda_io_num: 8
+      scl_io_num: 18
