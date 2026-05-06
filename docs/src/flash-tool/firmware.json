@@ -130,7 +130,7 @@
       "metro_esp32s3": {
         "features": [],
         "description": "",
-        "merged_binary": "/merged_binary/metro_esp32s3.bin",
+        "merged_binary": "/esp-claw/merged_binary/metro_esp32s3.bin",
         "min_flash_size": 16,
         "min_psram_size": 8,
         "nvs_info": {
@@ -141,7 +141,7 @@
       "qualia_s3_720x720": {
         "features": [],
         "description": "",
-        "merged_binary": "/merged_binary/qualia_s3_720x720_merged.bin",
+        "merged_binary": "/esp-claw/merged_binary/qualia_s3_720x720_merged.bin",
         "min_flash_size": 16,
         "min_psram_size": 8,
         "nvs_info": {

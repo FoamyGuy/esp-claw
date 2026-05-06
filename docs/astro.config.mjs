@@ -7,9 +7,10 @@ import starlightThemeNova from "starlight-theme-nova";
 import astroD2 from "astro-d2";
 import { remarkDocLinks } from "./src/plugins/remark-doc-links.ts";
 
-const BASE = "/";
+const BASE = "/esp-claw/";
 
 export default defineConfig({
+  site: 'https://foamyguy.github.io',
   base: BASE,
   integrations: [
     astroD2(),
