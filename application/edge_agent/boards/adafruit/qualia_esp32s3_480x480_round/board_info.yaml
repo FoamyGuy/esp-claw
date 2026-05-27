@@ -1,0 +1,5 @@
+board: qualia_esp32s3_rgb666_small_round
+chip: esp32s3
+version: 1.0.0
+description: "Adafruit Qualia ESP32-S3 with TL021WVC02CT 2.1in Round 480x480 Display (16MB flash / 8MB OPI PSRAM)"
+manufacturer: "Adafruit"

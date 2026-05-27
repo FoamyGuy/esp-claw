@@ -1,113 +1,126 @@
 /*
  * SPDX-FileCopyrightText: 2026 Espressif Systems (Shanghai) CO LTD
  * SPDX-FileCopyrightText: 2026 Anne Barela for Adafruit Industries
+ *
  * SPDX-License-Identifier: Apache-2.0
- *
- * Board bring-up for Adafruit Qualia ESP32-S3 RGB-666 with TL040HDS20 4" 720x720 display.
- *
- * This board uses an RGB dot-clock interface, which has no display_lcd:rgb sub_type in
- * esp_board_manager v0.5.3. Both devices use type:custom.
- *
- * Display device: Pattern C from §8.7 of espclaw_new_board.md.
- * Returns dev_display_lcd_handles_t* so display_hal.c, the display arbiter, and
- * lua_module_display can consume it via esp_board_device_get_handle("display_lcd", ...).
- *
- * Expander device: PCA9554A is initialized before display_lcd in board_devices.yaml,
- * so the expander handle is available when display_lcd init runs if needed.
- *
- * GPIO source: Adafruit CircuitPython board.c / Learn guide "CircuitPython Display Setup"
- * Timing source: CircuitPython GitHub issues #10712 and #10613 (two independent sources)
- * Expander source: Adafruit Learn guide TFT_IO_EXPANDER table and i2c_init_sequence
  */
 
 #include <string.h>
 #include <stdlib.h>
 #include "esp_log.h"
 #include "esp_check.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
-#include "driver/i2c_master.h"
 #include "esp_io_expander.h"
 #include "esp_io_expander_tca9554.h"
 
-/* MANDATORY umbrella headers — do not include sub-headers directly */
 #include "esp_board_manager_includes.h"
 #include "gen_board_device_custom.h"
-
-/* Pattern C displays return dev_display_lcd_handles_t. The umbrella header only
- * exposes it when CONFIG_ESP_BOARD_DEV_DISPLAY_LCD_SUPPORT is enabled, which it
- * isn't here (we register the panel as type:custom). Mirror the struct locally —
- * display_hal.c consumes it by layout. Keep field order in sync with
- * managed_components/espressif__esp_board_manager/devices/dev_display_lcd/dev_display_lcd.h. */
-typedef struct {
-    esp_lcd_panel_io_handle_t  io_handle;
-    esp_lcd_panel_handle_t     panel_handle;
-} dev_display_lcd_handles_t;
+#include "../../managed_components/espressif__esp_board_manager/devices/dev_display_lcd/dev_display_lcd.h"
 
 static const char *TAG = "QUALIA_ESP32S3_RGB666";
 
-/* ---------------------------------------------------------------------------
- * PCA9554A I/O expander factory entry
+/* PCA9554A pin assignments per Adafruit pins_arduino.h */
+#define PCA_BIT_CLK        0    /* TFT_SCK         (output) */
+#define PCA_BIT_CS         1    /* TFT_CS          (output) */
+#define PCA_BIT_RESET      2    /* TFT_RESET       (output) */
+#define PCA_BIT_TOUCH_IRQ  3    /* CPT_IRQ         (input)  */
+#define PCA_BIT_BACKLIGHT  4    /* TFT_BACKLIGHT   (output, HIGH = on) */
+#define PCA_BIT_BTN_UP     5    /* BUTTON_UP       (input)  */
+#define PCA_BIT_BTN_DN     6    /* BUTTON_DOWN     (input)  */
+#define PCA_BIT_MOSI       7    /* TFT_MOSI        (output) */
+
+
+/* Factory function called automatically by the gpio_expander framework code
+ * after the base PCA9554A driver has been instantiated.
  *
- * dev_gpio_expander.c calls io_expander_factory_entry_t() after probing the bus.
- * PCA9554A is register-compatible with TCA9554A, so we use the espressif
- * tca9554 driver. (See esp32_s3_korvo2_v3/setup_device.c for the canonical pattern.)
- *
- * At runtime the expander is accessible via:
- *   esp_io_expander_handle_t exp = NULL;
- *   esp_board_device_get_handle("gpio_expander", (void **)&exp);
- * ------------------------------------------------------------------------- */
+ * For Qualia: drive output register to a safe idle state (CS high, CLK/MOSI low,
+ * RESET low to start) so the panel is held in reset until display init runs.
+ * The actual reset-release pulse and any panel-specific SPI init bytes are
+ * performed in the display init function below — that's where panel-specific
+ * timing needs to live, not here. */
 esp_err_t io_expander_factory_entry_t(i2c_master_bus_handle_t i2c_handle,
                                       const uint16_t dev_addr,
                                       esp_io_expander_handle_t *handle_ret)
 {
+    /* Use TCA9554 driver — register-compatible with PCA9554A.
+     * See espressif/esp-bsp#335. */
     esp_err_t ret = esp_io_expander_new_i2c_tca9554(i2c_handle, dev_addr, handle_ret);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "esp_io_expander_new_i2c_tca9554 failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to create PCA9554A IO expander: %s", esp_err_to_name(ret));
+        return ret;
     }
-    return ret;
+
+    /* Set initial output levels. The framework already configured directions
+     * from output_io_mask in the YAML. Drive backlight HIGH explicitly here so
+     * the TPS61169 backlight driver is enabled before any pixel data starts. */
+    esp_io_expander_set_level(*handle_ret, BIT(PCA_BIT_CS),        1);
+    esp_io_expander_set_level(*handle_ret, BIT(PCA_BIT_RESET),     0);
+    esp_io_expander_set_level(*handle_ret, BIT(PCA_BIT_CLK),       0);
+    esp_io_expander_set_level(*handle_ret, BIT(PCA_BIT_MOSI),      0);
+    esp_io_expander_set_level(*handle_ret, BIT(PCA_BIT_BACKLIGHT), 1);
+
+    return ESP_OK;
 }
 
-/* ---------------------------------------------------------------------------
- * TL040HDS20 RGB dot-clock display — Pattern C
- *
- * Pixel clock: 16 MHz
- * Resolution:  720 × 720
- * Interface:   RGB-565 (16 data lines; board PCB README: "5-6-5 RGB color")
- * Init seq:    None (bytes() empty) — TL040HDS20 needs no SPI init sequence.
- *              Source: CircuitPython issues #10712 and #10613.
- *
- * REVIEWER NOTE: pclk_active_neg=true maps to CircuitPython pclk_active_high=False.
- * Verify this polarity is correct against TL040HDS20 datasheet before merging.
- * If display is all-black or shows a single color but panel LED backlight is on,
- * flip this flag first.
- * ------------------------------------------------------------------------- */
+/* Pulse reset on the panel via expander bit 2.
+ * Active low. Hold for 10 ms, release, wait 120 ms for panel to come up. */
+static esp_err_t qualia_panel_reset_pulse(esp_io_expander_handle_t exp)
+{
+    ESP_RETURN_ON_ERROR(esp_io_expander_set_level(exp, BIT(PCA_BIT_RESET), 0),
+                        TAG, "Reset assert failed");
+    vTaskDelay(pdMS_TO_TICKS(10));
+    ESP_RETURN_ON_ERROR(esp_io_expander_set_level(exp, BIT(PCA_BIT_RESET), 1),
+                        TAG, "Reset release failed");
+    vTaskDelay(pdMS_TO_TICKS(120));
+    return ESP_OK;
+}
 
 static int qualia_display_init(void *config, int cfg_size, void **device_handle)
 {
-    dev_custom_display_lcd_config_t *cfg =
-        (dev_custom_display_lcd_config_t *)config;
+    dev_custom_display_lcd_config_t *cfg = (dev_custom_display_lcd_config_t *)config;
+    esp_io_expander_handle_t exp = NULL;
 
-    ESP_LOGI(TAG, "Initializing TL040HDS20 RGB dot-clock display (%d Hz, %dx%d)",
+    ESP_LOGI(TAG, "Initializing TL040HDS20 RGB display (%d Hz, %dx%d)",
              cfg->pclk_hz, cfg->h_res, cfg->v_res);
 
+    /* Pulse RESET on the expander before the panel sees pixel clock.
+     * gpio_expander is listed before display_lcd in board_devices.yaml so
+     * its handle is available here. */
+    esp_err_t ret = esp_board_device_get_handle("gpio_expander", (void **)&exp);
+    if (ret != ESP_OK || exp == NULL) {
+        ESP_LOGE(TAG, "gpio_expander handle unavailable: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    ret = qualia_panel_reset_pulse(exp);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    /* TL040HDS20 needs no SPI init bytes — empty init sequence per
+     * CircuitPython issues #10712 and #10613. Other Qualia panels
+     * (HD40015C40, etc.) would bit-bang their init bytes here via the
+     * expander before this point. */
+
     dev_display_lcd_handles_t *h = calloc(1, sizeof(*h));
-    ESP_RETURN_ON_FALSE(h, ESP_ERR_NO_MEM, TAG, "Failed to allocate display handle");
+    ESP_RETURN_ON_FALSE(h, ESP_ERR_NO_MEM, TAG, "alloc failed");
 
     esp_lcd_rgb_panel_config_t panel_cfg = {
-        .clk_src         = LCD_CLK_SRC_DEFAULT,
+        .clk_src = LCD_CLK_SRC_DEFAULT,
         .timings = {
-            .pclk_hz             = (uint32_t)cfg->pclk_hz,
-            .h_res               = (uint32_t)cfg->h_res,
-            .v_res               = (uint32_t)cfg->v_res,
-            .hsync_pulse_width   = (uint32_t)cfg->hsync_pulse_width,
-            .hsync_front_porch   = (uint32_t)cfg->hsync_front_porch,
-            .hsync_back_porch    = (uint32_t)cfg->hsync_back_porch,
-            .vsync_pulse_width   = (uint32_t)cfg->vsync_pulse_width,
-            .vsync_front_porch   = (uint32_t)cfg->vsync_front_porch,
-            .vsync_back_porch    = (uint32_t)cfg->vsync_back_porch,
+            .pclk_hz           = (uint32_t)cfg->pclk_hz,
+            .h_res             = (uint32_t)cfg->h_res,
+            .v_res             = (uint32_t)cfg->v_res,
+            .hsync_pulse_width = (uint32_t)cfg->hsync_pulse_width,
+            .hsync_front_porch = (uint32_t)cfg->hsync_front_porch,
+            .hsync_back_porch  = (uint32_t)cfg->hsync_back_porch,
+            .vsync_pulse_width = (uint32_t)cfg->vsync_pulse_width,
+            .vsync_front_porch = (uint32_t)cfg->vsync_front_porch,
+            .vsync_back_porch  = (uint32_t)cfg->vsync_back_porch,
             .flags = {
-                /* pclk_active_high=False in CircuitPython → pclk_active_neg=true here */
                 .pclk_active_neg = (uint32_t)cfg->pclk_active_neg,
                 .hsync_idle_low  = (uint32_t)cfg->hsync_idle_low,
                 .vsync_idle_low  = (uint32_t)cfg->vsync_idle_low,
@@ -115,55 +128,42 @@ static int qualia_display_init(void *config, int cfg_size, void **device_handle)
                 .pclk_idle_high  = (uint32_t)cfg->pclk_idle_high,
             },
         },
-        /* RGB data lines — 16 pins total (5+6+5 = RGB-565).
-         * GPIO assignments from CircuitPython board.c red/green/blue_pins[]:
-         *   R[0..4] = {1, 2, 42, 41, 40}
-         *   G[0..5] = {21, 47, 48, 45, 38, 39}
-         *   B[0..4] = {10, 11, 12, 13, 14}
-         * DE=17, VSYNC=3, HSYNC=46, DCLK=9
-         * Source: Adafruit Learn "CircuitPython Display Setup", TFT_PINS dict. */
+        /* Order: B (LSB) → G → R (MSB). The IDF RGB peripheral maps
+         * data_gpio_nums[0] to bus bit 0 (LSB). The Qualia panel connector
+         * wires DB0=B0..DB5=B5, DB6=G0..DB11=G5, DB12=R0..DB17=R5. */
         .data_gpio_nums = {
-            /* R0-R4 */
-            cfg->data_gpio_r0, cfg->data_gpio_r1, cfg->data_gpio_r2,
-            cfg->data_gpio_r3, cfg->data_gpio_r4,
-            /* G0-G5 */
-            cfg->data_gpio_g0, cfg->data_gpio_g1, cfg->data_gpio_g2,
-            cfg->data_gpio_g3, cfg->data_gpio_g4, cfg->data_gpio_g5,
-            /* B0-B4 */
             cfg->data_gpio_b0, cfg->data_gpio_b1, cfg->data_gpio_b2,
             cfg->data_gpio_b3, cfg->data_gpio_b4,
+            cfg->data_gpio_g0, cfg->data_gpio_g1, cfg->data_gpio_g2,
+            cfg->data_gpio_g3, cfg->data_gpio_g4, cfg->data_gpio_g5,
+            cfg->data_gpio_r0, cfg->data_gpio_r1, cfg->data_gpio_r2,
+            cfg->data_gpio_r3, cfg->data_gpio_r4,
         },
-        .data_width      = 16,
-        .de_gpio_num     = (int)cfg->de_gpio_num,
-        .vsync_gpio_num  = (int)cfg->vsync_gpio_num,
-        .hsync_gpio_num  = (int)cfg->hsync_gpio_num,
-        .pclk_gpio_num   = (int)cfg->pclk_gpio_num,
-        .disp_gpio_num   = -1,       /* no dedicated display-enable pin */
-        .bits_per_pixel  = (uint8_t)cfg->bits_per_pixel,
+        .data_width = 16,
+        .de_gpio_num    = (int)cfg->de_gpio_num,
+        .vsync_gpio_num = (int)cfg->vsync_gpio_num,
+        .hsync_gpio_num = (int)cfg->hsync_gpio_num,
+        .pclk_gpio_num  = (int)cfg->pclk_gpio_num,
+        .disp_gpio_num  = -1,
+        .bits_per_pixel = (uint8_t)cfg->bits_per_pixel,
         .flags = {
-            .fb_in_psram    = true,  /* 720*720*2 = ~1MB, must be in PSRAM */
-            .double_fb      = false, /* single framebuffer to start */
-            .no_fb          = false,
+            .fb_in_psram = true,
         },
-        .bounce_buffer_size_px = 0,
     };
 
-    esp_err_t ret = esp_lcd_new_rgb_panel(&panel_cfg, &h->panel_handle);
+    ret = esp_lcd_new_rgb_panel(&panel_cfg, &h->panel_handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "esp_lcd_new_rgb_panel failed: %s", esp_err_to_name(ret));
         free(h);
         return ret;
     }
 
-    /* h->io_handle stays NULL — RGB panels have no separate IO controller */
-
     ESP_ERROR_CHECK(esp_lcd_panel_reset(h->panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(h->panel_handle));
-    /* RGB panel has no disp_gpio (-1); driver returns ESP_ERR_NOT_SUPPORTED.
-    Skip — display is enabled by RESET line via PCA9554. */
+    ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(h->panel_handle, true));
+
 
     ESP_LOGI(TAG, "TL040HDS20 display initialized");
-
     *device_handle = h;
     return ESP_OK;
 }
@@ -181,5 +181,4 @@ static int qualia_display_deinit(void *device_handle)
     return ESP_OK;
 }
 
-/* YAML device name is "display_lcd" — must match exactly */
 CUSTOM_DEVICE_IMPLEMENT(display_lcd, qualia_display_init, qualia_display_deinit);

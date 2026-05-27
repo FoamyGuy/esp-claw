@@ -4,7 +4,7 @@ version: 1.0.0
 peripherals:
 
   # I2C master — SDA=GPIO8, SCL=GPIO18
-  # Shared by PCA9554A expander, touch controller, STEMMA QT
+  # Shared by PCA9554A expander (0x3F), CST826 touch (0x15), STEMMA QT
   - name: i2c_master
     type: i2c
     role: master

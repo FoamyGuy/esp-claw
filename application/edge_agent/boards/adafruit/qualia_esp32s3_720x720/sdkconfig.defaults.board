@@ -9,3 +9,10 @@ CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_ESP_CONSOLE_USB_CDC=y
 CONFIG_LCD_RGB_ISR_IRAM_SAFE=y
+
+# Enable display_lcd device support for the custom RGB panel.
+# Required because this board uses type:custom for display_lcd, which does
+# not auto-enable this flag. Without it, APP_CLAW_ENABLE_EMOTE is forced off
+# and the application never draws to the panel. Pattern from
+# waveshare_ESP32_S3_RLCD_4_2 and lilygo_t_display_s3.
+CONFIG_ESP_BOARD_DEV_DISPLAY_LCD_SUPPORT=y

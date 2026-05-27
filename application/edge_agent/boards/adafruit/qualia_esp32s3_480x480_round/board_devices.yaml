@@ -35,25 +35,24 @@ devices:
       - name: i2c_master
         i2c_addr: [0x3F]
   - name: display_lcd
-    chip: tl040hds20
+    chip: tl021wvc02ct
     type: custom
     version: default
     config:
-      pclk_hz: 16000000
-      h_res: 720
-      v_res: 720
-      hsync_pulse_width: 2
-      hsync_front_porch: 46
-      hsync_back_porch: 44
-      vsync_pulse_width: 2
-      vsync_front_porch: 16
-      vsync_back_porch: 18
+      pclk_hz: 16000000          # within panel's 10-30 MHz range; typ 17 MHz
+      h_res: 480
+      v_res: 480
+      hsync_pulse_width: 20   # CircuitPython authoritative
+      hsync_front_porch: 40   # CircuitPython authoritative
+      hsync_back_porch: 40    # CircuitPython authoritative
+      vsync_pulse_width: 10   # CircuitPython authoritative
+      vsync_front_porch: 40   # CircuitPython authoritative
+      vsync_back_porch: 40    # CircuitPython authoritative
       hsync_idle_low: false
       vsync_idle_low: false
       de_idle_high: false
-      pclk_active_neg: true   # CircuitPython pclk_active_high=False
+      pclk_active_neg: false
       pclk_idle_high: false
-      # RGB data lines — R[0-4], G[0-5], B[0-4]
       data_gpio_r0: 11
       data_gpio_r1: 10
       data_gpio_r2: 9
@@ -74,6 +73,33 @@ devices:
       vsync_gpio_num: 42
       hsync_gpio_num: 41
       pclk_gpio_num: 1
-      bits_per_pixel: 16   # RGB-565; board wires 5+6+5 despite "RGB-666" name
+      bits_per_pixel: 16
     peripherals:
       - name: i2c_master
+
+  # Capacitive touch — CST826 at I2C 0x15 on the shared bus.
+  # Driver: esp_lcd_touch_cst816s (CST826 is same family, register-compatible).
+  # Touch INT and RESET pins are connector-side and driven by the panel itself
+  # via the 40-pin FPC; not directly accessible from S3 GPIOs on the Qualia
+  # carrier, so we use -1 (chip self-resets via panel power and only signals
+  # via I2C polling).
+  - name: lcd_touch
+    chip: cst826
+    type: lcd_touch_i2c
+    version: default
+    dependencies:
+      espressif/esp_lcd_touch_cst816s: "*"
+    config:
+      io_i2c_config:
+        dev_addr: [0x15]
+        peripherals:
+          - name: i2c_master
+      touch_config:
+        x_max: 480
+        y_max: 480
+        int_gpio_num: -1
+        rst_gpio_num: -1
+        flags:
+          swap_xy: false
+          mirror_x: false
+          mirror_y: false
